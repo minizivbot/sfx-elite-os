@@ -3,118 +3,103 @@ from supabase import create_client
 import pandas as pd
 from datetime import date
 
-# --- חיבור לבסיס הנתונים (חייב להגדיר ב-Secrets) ---
+# --- הגדרות דף ---
+st.set_page_config(page_title="SFX ELITE OS", layout="wide", initial_sidebar_state="expanded")
+
+# --- חיבור ל-DATABASE ---
 try:
     url = st.secrets["SUPABASE_URL"]
     key = st.secrets["SUPABASE_KEY"]
     supabase = create_client(url, key)
 except Exception as e:
-    st.error("שגיאת חיבור: וודא שהגדרת את ה-Secrets ב-Streamlit")
+    st.error("Missing Secrets! Check Streamlit Settings -> Secrets")
     st.stop()
 
-# --- הגדרות דף ועיצוב ---
-st.set_page_config(page_title="SFX ELITE OS", layout="wide")
-
+# --- עיצוב CSS מורחב ---
 st.markdown("""
     <style>
     .stApp { background-color: #0B0E14; color: #E2E8F0; }
-    .main-header { font-size: 3rem; font-weight: 900; background: -webkit-linear-gradient(45deg, #34d399, #3B82F6); -webkit-background-clip: text; -webkit-text-fill-color: transparent; text-align: center; margin-bottom: 30px; }
-    .metric-card { background: #1A1F26; padding: 20px; border-radius: 15px; border: 1px solid #2D3748; text-align: center; }
+    .main-header { font-size: 3.5rem; font-weight: 900; background: linear-gradient(45deg, #34d399, #3B82F6); -webkit-background-clip: text; -webkit-text-fill-color: transparent; text-align: center; padding: 20px; }
+    .card { background: #1A1F26; padding: 25px; border-radius: 15px; border: 1px solid #2D3748; margin-bottom: 20px; }
+    .metric-val { font-size: 2rem; font-weight: bold; color: #ffffff; }
     </style>
     """, unsafe_allow_html=True)
 
 st.markdown("<h1 class='main-header'>SFX ELITE OS</h1>", unsafe_allow_html=True)
 
-# --- טעינת נתונים מ-Supabase ---
-def get_accounts():
-    res = supabase.table("accounts").select("*").execute()
-    return res.data if res.data else []
+# --- פונקציות נתונים ---
+def get_data(table_name):
+    try:
+        res = supabase.table(table_name).select("*").execute()
+        return res.data if res.data else []
+    except:
+        return []
 
-def get_trades():
-    res = supabase.table("trades").select("*").execute()
-    return res.data if res.data else []
+accounts = get_data("accounts")
+trades = get_data("trades")
 
-accounts = get_accounts()
-trades = get_trades()
+# --- תפריט ניווט ---
+page = st.sidebar.radio("ניווט במערכת", ["📊 Dashboard", "📝 Trade Log", "⚙️ Account Settings"])
 
-# --- תפריט צדדי ---
-with st.sidebar:
-    st.title("Navigation")
-    menu = st.radio("בחר עמוד:", ["Dashboard", "Trade Log", "Account Settings"])
-
-# ================= 1. ACCOUNT SETTINGS =================
-if menu == "Account Settings":
-    st.subheader("ניהול חשבונות מסחר")
+# ================= PAGE: SETTINGS =================
+if page == "⚙️ Account Settings":
+    st.markdown("<div class='card'><h2>ניהול חשבונות מסחר</h2></div>", unsafe_allow_html=True)
     
-    with st.form("add_account_form"):
+    with st.form("new_account"):
         col1, col2, col3 = st.columns(3)
-        acc_name = col1.text_input("שם החשבון (למשל: My 25K Challenge)")
-        acc_target = col2.number_input("יעד רווח ($)", value=1500)
-        acc_drawdown = col3.number_input("מקסימום דראודאון ($)", value=750)
+        name = col1.text_input("שם החשבון")
+        target = col2.number_input("יעד רווח ($)", value=1500)
+        drawdown = col3.number_input("מקסימום הפסד ($)", value=750)
         
-        if st.form_submit_button("צור חשבון חדש"):
-            if acc_name:
-                supabase.table("accounts").insert({
-                    "account_name": acc_name, 
-                    "target": acc_target, 
-                    "drawdown": acc_drawdown
-                }).execute()
-                st.success(f"חשבון '{acc_name}' נוצר!")
+        if st.form_submit_button("צור חשבון"):
+            if name:
+                supabase.table("accounts").insert({"account_name": name, "target": target, "drawdown": drawdown}).execute()
+                st.success(f"החשבון {name} נוצר בהצלחה!")
                 st.rerun()
-            else:
-                st.error("חייב להזין שם חשבון")
 
-# ================= 2. TRADE LOG =================
-elif menu == "Trade Log":
+# ================= PAGE: TRADE LOG =================
+elif page == "📝 Trade Log":
     if not accounts:
-        st.warning("עבור ל-Account Settings וצור חשבון קודם.")
+        st.warning("עליך ליצור חשבון תחילה בהגדרות.")
     else:
-        st.subheader("תיעוד טרייד חדש")
+        st.markdown("<div class='card'><h2>תיעוד עסקה חדשה</h2></div>", unsafe_allow_html=True)
         acc_names = [a['account_name'] for a in accounts]
         
         with st.form("log_trade"):
             c1, c2, c3 = st.columns(3)
-            selected_acc = c1.selectbox("בחר חשבון", acc_names)
-            pair = c2.selectbox("צמד", ["NQ", "ES", "BTC", "ETH", "Gold"])
-            side = c3.selectbox("Side", ["Long", "Short"])
+            acc = c1.selectbox("חשבון", acc_names)
+            pair = c2.selectbox("צמד", ["NQ", "ES", "BTC", "ETH"])
+            side = c3.radio("Side", ["Long", "Short"], horizontal=True)
             
             c4, c5, c6 = st.columns(3)
             outcome = c4.selectbox("תוצאה", ["Win", "Loss", "BE"])
             pnl = c5.number_input("PNL ($)", step=10.0)
-            trade_date = c6.date_input("תאריך", date.today())
+            d = c6.date_input("תאריך", date.today())
             
-            if st.form_submit_button("שמור עסקאות"):
+            if st.form_submit_button("שמור טרייד"):
                 supabase.table("trades").insert({
-                    "account": selected_acc,
-                    "pair": pair,
-                    "side": side,
-                    "outcome": outcome,
-                    "pnl": pnl,
-                    "date": str(trade_date)
+                    "account": acc, "pair": pair, "side": side, 
+                    "outcome": outcome, "pnl": pnl, "date": str(d)
                 }).execute()
-                st.success("הטרייד נשמר בהצלחה!")
+                st.success("הטרייד נשמר!")
                 st.rerun()
 
-# ================= 3. DASHBOARD =================
-elif menu == "Dashboard":
+# ================= PAGE: DASHBOARD =================
+elif page == "📊 Dashboard":
     if not accounts:
-        st.info("אין נתונים להצגה. התחל ביצירת חשבון.")
+        st.info("אין חשבונות פעילים.")
     else:
         for acc in accounts:
             acc_trades = [t for t in trades if t['account'] == acc['account_name']]
             total_pnl = sum([t['pnl'] for t in acc_trades])
             
-            st.markdown(f"### חשבון: {acc['account_name']}")
+            st.markdown(f"### 🏦 חשבון: {acc['account_name']}")
             m1, m2, m3 = st.columns(3)
-            
-            with m1:
-                st.markdown(f"<div class='metric-card'><h4>PNL נוכחי</h4><h2 style='color:#34d399;'>${total_pnl}</h2></div>", unsafe_allow_html=True)
-            with m2:
-                st.markdown(f"<div class='metric-card'><h4>יעד (Target)</h4><h2>${acc['target']}</h2></div>", unsafe_allow_html=True)
-            with m3:
-                st.markdown(f"<div class='metric-card'><h4>Drawdown</h4><h2 style='color:#f87171;'>${acc['drawdown']}</h2></div>", unsafe_allow_html=True)
+            m1.metric("PNL כולל", f"${total_pnl}", delta=f"{total_pnl}")
+            m2.metric("יעד (Target)", f"${acc['target']}")
+            m3.metric("Drawdown", f"${acc['drawdown']}", delta_color="inverse")
             
             if acc_trades:
-                st.write("#### עסקאות אחרונות")
-                st.table(pd.DataFrame(acc_trades)[['date', 'pair', 'side', 'outcome', 'pnl']].tail(5))
+                df = pd.DataFrame(acc_trades)
+                st.dataframe(df[['date', 'pair', 'side', 'outcome', 'pnl']], use_container_width=True)
             st.divider()
